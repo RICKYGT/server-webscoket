@@ -102,7 +102,9 @@ app.delete('/devices/:id', async (req, res) => {
 
 // TRIGGER DEVICE
 app.post('/device/:id/:command', async (req, res) => {
-   const data = await redis.get(`device:${req.params.id}`);
+   const { id, command } = req.params;
+
+   const data = await redis.get(`device:${id}`);
    if (!data) return res.status(404).json({ error: "Device not found" });
 
    const device = JSON.parse(data);
@@ -112,12 +114,14 @@ app.post('/device/:id/:command', async (req, res) => {
       return res.status(503).json({ error: "Agent offline" });
    }
 
+   device.command = command;
+
    agentWs.send(JSON.stringify({
       type: "HTTP_TRIGGER",
       device
    }));
 
-   res.json({ status: "SENT", device_id: device.device_id });
+   res.json({ status: "SENT", device_id: device.device_id, command });
 });
 
 app.listen(3000, () => {
