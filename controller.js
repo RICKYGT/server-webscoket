@@ -49,9 +49,14 @@ ws.on('message', async (msg) => {
 
    const device = data.device;
    const { device_id, ip, port } = device;
-   const path = device.command || device.path;
 
-   const url = `http://${ip}:${port}/${path}`;
+   const path = device.path || device.command;
+   const query = device.query || {};
+
+   const queryString = new URLSearchParams(query).toString();
+   const url = queryString
+      ? `http://${ip}:${port}/${path}?${queryString}`
+      : `http://${ip}:${port}/${path}`;
 
    console.log("📡 Triggering Android device");
    console.log("📱 Device ID:", device_id);

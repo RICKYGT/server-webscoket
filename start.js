@@ -108,6 +108,7 @@ app.delete('/devices/:id', async (req, res) => {
 // TRIGGER DEVICE
 app.post('/device/:id/:command', async (req, res) => {
    const { id, command } = req.params;
+   const query = req.query
 
    const data = await redis.get(`device:${id}`);
    if (!data) {
@@ -134,13 +135,18 @@ app.post('/device/:id/:command', async (req, res) => {
    // KIRIM KE AGENT
    agentWs.send(JSON.stringify({
       type: "HTTP_TRIGGER",
-      device
+      device: {
+         ...device,
+         path: command,
+         query
+      }
    }));
 
    res.json({
       status: "SENT",
       device_id: id,
       command,
+      query,
       at: now
    });
 });
