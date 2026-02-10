@@ -52,7 +52,12 @@ app.post('/devices', async (req, res) => {
       agent_id: req.body.agent_id,
       ip: req.body.ip,
       port: req.body.port || 8080,
-      status: "idle"
+      command: null,
+      last_command: null,
+      last_command_at: null,
+      status: "idle",
+      created_at: new Date().toISOString()
+
    };
 
    await redis.set(`device:${id}`, JSON.stringify(device));
@@ -105,7 +110,9 @@ app.post('/device/:id/:command', async (req, res) => {
    const { id, command } = req.params;
 
    const data = await redis.get(`device:${id}`);
-   if (!data) return res.status(404).json({ error: "Device not found" });
+   if (!data) {
+      return res.status(404).json({ error: "Device not found" });
+   }
 
    const device = JSON.parse(data);
    const agentWs = agents[device.agent_id];
@@ -114,14 +121,28 @@ app.post('/device/:id/:command', async (req, res) => {
       return res.status(503).json({ error: "Agent offline" });
    }
 
-   device.command = command;
+   const now = new Date().toISOString();
 
+   device.command = command;
+   device.last_command = command;
+   device.last_command_at = now;
+   device.status = "running";
+
+   // SIMPAN KE REDIS
+   await redis.set(`device:${id}`, JSON.stringify(device));
+
+   // KIRIM KE AGENT
    agentWs.send(JSON.stringify({
       type: "HTTP_TRIGGER",
       device
    }));
 
-   res.json({ status: "SENT", device_id: device.device_id, command });
+   res.json({
+      status: "SENT",
+      device_id: id,
+      command,
+      at: now
+   });
 });
 
 app.listen(3000, () => {
