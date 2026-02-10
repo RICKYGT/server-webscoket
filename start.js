@@ -1,65 +1,125 @@
 const express = require('express');
 const WebSocket = require('ws');
+const { createClient } = require('redis');
+const { v4: uuid } = require('uuid');
 
 const app = express();
 app.use(express.json());
 
+// ===== REDIS =====
+const redis = createClient();
+redis.connect();
+
+// ===== WS =====
 const wss = new WebSocket.Server({ port: 8080 });
 const agents = {}; // agent_id -> ws
 
-console.log("WS running :8080");
-console.log("HTTP API running :3000");
-
-// ===== WS PART =====
+// ===== WS HANDLER =====
 wss.on('connection', (ws) => {
    let agentId = null;
 
-   ws.on('message', (msg) => {
+   ws.on('message', async (msg) => {
       const data = JSON.parse(msg.toString());
 
+      // Register agent
       if (data.type === "HELLO") {
          agentId = data.agent_id;
          agents[agentId] = ws;
-         console.log("Agent registered:", agentId);
+         console.log("Agent online:", agentId);
          return;
       }
 
-      console.log("From agent:", data);
+      // Result dari agent
+      if (data.type === "RESULT") {
+         console.log("Result:", data);
+      }
    });
 
    ws.on('close', () => {
       if (agentId) delete agents[agentId];
-      console.log("Agent disconnected:", agentId);
+      console.log("Agent offline:", agentId);
    });
 });
 
-// ===== HTTP API PART =====
-app.post('/device/:deviceId/:command', (req, res) => {
-   const { deviceId, command } = req.params;
+// ===== REST API =====
 
-   // sementara hardcode mapping
-   const deviceMap = {
-      device1: { agent_id: "agent-win-01" },
-      device2: { agent_id: "agent-win-01" }
+// CREATE DEVICE
+app.post('/devices', async (req, res) => {
+   const id = req.body.device_id || uuid();
+
+   const device = {
+      device_id: id,
+      agent_id: req.body.agent_id,
+      ip: req.body.ip,
+      port: req.body.port || 8080,
+      status: "idle"
    };
 
-   const device = deviceMap[deviceId];
-   if (!device) {
-      return res.status(404).json({ error: "Device not found" });
+   await redis.set(`device:${id}`, JSON.stringify(device));
+   res.json(device);
+});
+
+// GET ALL DEVICES
+app.get('/devices', async (req, res) => {
+   const keys = await redis.keys('device:*');
+   const devices = [];
+
+   for (const key of keys) {
+      devices.push(JSON.parse(await redis.get(key)));
    }
 
+   res.json(devices);
+});
+
+// GET DEVICE
+app.get('/devices/:id', async (req, res) => {
+   const data = await redis.get(`device:${req.params.id}`);
+   if (!data) return res.status(404).json({ error: "Not found" });
+
+   res.json(JSON.parse(data));
+});
+
+// UPDATE DEVICE
+app.put('/devices/:id', async (req, res) => {
+   const key = `device:${req.params.id}`;
+   const data = await redis.get(key);
+   if (!data) return res.status(404).json({ error: "Not found" });
+
+   const device = {
+      ...JSON.parse(data),
+      ...req.body
+   };
+
+   await redis.set(key, JSON.stringify(device));
+   res.json(device);
+});
+
+// DELETE DEVICE
+app.delete('/devices/:id', async (req, res) => {
+   await redis.del(`device:${req.params.id}`);
+   res.json({ status: "deleted" });
+});
+
+// TRIGGER DEVICE
+app.post('/device/:id/:command', async (req, res) => {
+   const data = await redis.get(`device:${req.params.id}`);
+   if (!data) return res.status(404).json({ error: "Device not found" });
+
+   const device = JSON.parse(data);
    const agentWs = agents[device.agent_id];
+
    if (!agentWs) {
       return res.status(503).json({ error: "Agent offline" });
    }
 
    agentWs.send(JSON.stringify({
       type: "HTTP_TRIGGER",
-      device_id: deviceId,
-      path: command
+      device
    }));
 
-   res.json({ status: "SENT", deviceId, command });
+   res.json({ status: "SENT", device_id: device.device_id });
 });
 
-app.listen(3000);
+app.listen(3000, () => {
+   console.log("REST API running :3000");
+});
