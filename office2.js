@@ -1,8 +1,8 @@
 const WebSocket = require('ws');
 const axios = require('axios');
 
-const office_id = "1";
-const office_name = "Office 1";
+const office_id = "2";
+const office_name = "Office 2";
 const WS_URL = "ws://192.168.1.66:3000";
 
 console.log("🚀 Starting PC Agent...");
@@ -78,13 +78,8 @@ ws.on('message', async (msg) => {
          office_name: office_name,
          device_id,
          status: "SUCCESS",
-         http_status: response.status,
-         body: response.data
+         http_status: response.status
       }));
-
-      // console.log("response:", response);
-      console.log("Header Response", response.status);
-      console.log("Header Body", response.data);
 
    } catch (err) {
       console.error("❌ HTTP FAILED");
