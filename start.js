@@ -113,10 +113,10 @@ wss.on('connection', (ws) => {
 
 // TRIGGER DEVICE (queue per office_id)
 app.get('/:office_id/:device_id/:device_ip/:command', async (req, res) => {
-   const rig_id = req.query.rig_id || 'default_rig';
 
-   const { office_id, rig_id, device_id, device_ip, command } = req.params;
+   const { office_id, device_id, device_ip, command } = req.params;
    const query = req.query;
+   const rig_id = req.query.rig_id || 'default_rig';
 
    if (!offices[office_id] || offices[office_id].length === 0) {
       return res.status(503).json({ error: 'Office offline' });
