@@ -1,13 +1,31 @@
+require('dotenv').config();
+
 const express = require('express');
-const WebSocket = require('ws');
+const http = require('http');
+const { Server } = require('socket.io');
 const { v4: uuid } = require('uuid');
 
 const app = express();
 app.use(express.json());
 
-// ===== WS =====
-const wss = new WebSocket.Server({ port: 3000 });
-const offices = {}; // office_id -> ws[]
+const server = http.createServer(app);
+const io = new Server(server);
+
+// ===== AUTH =====
+const PORT = process.env.PORT || 4000;
+const SECRET_KEY = process.env.SECRET_KEY || 'changeme-secret-key';
+
+io.use((socket, next) => {
+   const token = socket.handshake.auth?.token;
+   if (token !== SECRET_KEY) {
+      console.warn(`[auth] rejected socket ${socket.id} — invalid token`);
+      return next(new Error('Unauthorized'));
+   }
+   next();
+});
+
+// ===== STATE =====
+const offices = {}; // office_id -> socket[]
 const queues = {}; // office_id -> { pending: [], currentJob: null }
 
 // ===== QUEUE =====
@@ -57,52 +75,45 @@ function processNext(office_id) {
       }
    }, 30_000);
 
-   clients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) {
-         client.send(JSON.stringify({
-            type: 'HTTP_TRIGGER',
-            job_id: job.id,
-            ...job.payload
-         }));
-      }
+   clients.forEach(socket => {
+      socket.emit('HTTP_TRIGGER', {
+         job_id: job.id,
+         ...job.payload
+      });
    });
 
    console.log(`[queue] office=${office_id} job=${job.id} sent | pending=${q.pending.length}`);
 }
 
-// ===== WS HANDLER =====
-wss.on('connection', (ws) => {
+// ===== SOCKET.IO HANDLER =====
+io.on('connection', (socket) => {
    let officeId = null;
 
-   ws.on('message', async (msg) => {
-      const data = JSON.parse(msg.toString());
+   socket.on('HELLO', (data) => {
+      officeId = data.office_id;
 
-      if (data.type === 'HELLO') {
-         officeId = data.office_id;
+      if (!offices[officeId]) offices[officeId] = [];
+      offices[officeId].push(socket);
 
-         if (!offices[officeId]) offices[officeId] = [];
-         offices[officeId].push(ws);
+      console.log(`Agent online: office_id=${officeId} | total=${offices[officeId].length}`);
+   });
 
-         console.log(`Agent online: office_id=${officeId} | total=${offices[officeId].length}`);
-      }
+   socket.on('RESULT', (data) => {
+      const q = queues[officeId];
 
-      if (data.type === 'RESULT') {
-         const q = queues[officeId];
-
-         if (q?.currentJob && q.currentJob.id === data.job_id) {
-            clearTimeout(q.currentJob.timer);
-            q.currentJob.resolve(data.result ?? data);
-            q.currentJob = null;
-            processNext(officeId);
-         } else {
-            console.warn(`[queue] RESULT job_id=${data.job_id} tidak cocok atau sudah timeout`);
-         }
+      if (q?.currentJob && q.currentJob.id === data.job_id) {
+         clearTimeout(q.currentJob.timer);
+         q.currentJob.resolve(data.result ?? data);
+         q.currentJob = null;
+         processNext(officeId);
+      } else {
+         console.warn(`[queue] RESULT job_id=${data.job_id} tidak cocok atau sudah timeout`);
       }
    });
 
-   ws.on('close', () => {
+   socket.on('disconnect', () => {
       if (officeId && offices[officeId]) {
-         offices[officeId] = offices[officeId].filter(c => c !== ws);
+         offices[officeId] = offices[officeId].filter(s => s !== socket);
          if (offices[officeId].length === 0) delete offices[officeId];
       }
       console.log('Agent offline:', officeId);
@@ -152,6 +163,6 @@ app.get('/queue/status', (req, res) => {
    res.json(status);
 });
 
-app.listen(4000, () => {
-   console.log('REST API running :4000');
+server.listen(PORT, () => {
+   console.log(`Server running :${PORT} (REST + Socket.IO)`);
 });

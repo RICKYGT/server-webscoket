@@ -1,23 +1,27 @@
-const WebSocket = require('ws');
+require('dotenv').config();
+
+const { io } = require('socket.io-client');
 const axios = require('axios');
 
-const office_id = "1";
-const office_name = "Office 1";
-const WS_URL = "ws://192.168.1.66:3000";
+const office_id = process.env.OFFICE_ID || "1";
+const office_name = process.env.OFFICE_NAME || "Office 1";
+const WS_URL = process.env.WS_URL || "http://192.168.1.66:4000";
+const SECRET_KEY = process.env.SECRET_KEY || "changeme-secret-key";
 
 console.log("🚀 Starting PC Agent...");
 console.log("🔌 Connecting to:", WS_URL);
 
-const ws = new WebSocket(WS_URL);
+const socket = io(WS_URL, {
+   auth: { token: SECRET_KEY }
+});
 
 /**
  * CONNECTED
  */
-ws.on('open', () => {
-   console.log("✅ WebSocket connected");
+socket.on('connect', () => {
+   console.log("✅ Socket.IO connected");
 
    const helloPayload = {
-      type: "HELLO",
       office_id: office_id,
       office_name: office_name,
       platform: "windows",
@@ -25,29 +29,14 @@ ws.on('open', () => {
    };
 
    console.log("📤 Sending HELLO:", helloPayload);
-   ws.send(JSON.stringify(helloPayload));
+   socket.emit('HELLO', helloPayload);
 });
 
 /**
  * MESSAGE FROM SERVER
  */
-ws.on('message', async (msg) => {
-   console.log("📥 Raw message:", msg.toString());
-
-   let data;
-   try {
-      data = JSON.parse(msg.toString());
-   } catch (err) {
-      console.error("❌ Invalid JSON from server");
-      return;
-   }
-
+socket.on('HTTP_TRIGGER', async (data) => {
    console.log("📦 Parsed data:", data);
-
-   if (data.type !== "HTTP_TRIGGER") {
-      console.log("⚠️ Unknown message type:", data.type);
-      return;
-   }
 
    const job_id = data.job_id;
    const device = data.device;
@@ -71,8 +60,7 @@ ws.on('message', async (msg) => {
       console.log("✅ HTTP SUCCESS");
       console.log("📨 Status:", response.status);
 
-      ws.send(JSON.stringify({
-         type: "RESULT",
+      socket.emit('RESULT', {
          job_id,
          office_id: office_id,
          office_name: office_name,
@@ -80,9 +68,8 @@ ws.on('message', async (msg) => {
          status: "SUCCESS",
          http_status: response.status,
          body: response.data
-      }));
+      });
 
-      // console.log("response:", response);
       console.log("Header Response", response.status);
       console.log("Header Body", response.data);
 
@@ -90,28 +77,27 @@ ws.on('message', async (msg) => {
       console.error("❌ HTTP FAILED");
       console.error("💥 Error:", err.message);
 
-      ws.send(JSON.stringify({
-         type: "RESULT",
+      socket.emit('RESULT', {
          job_id,
          office_id: office_id,
          office_name: office_name,
          device_id,
          status: "FAILED",
          error: err.message
-      }));
+      });
    }
 });
 
 /**
  * ERROR
  */
-ws.on('error', (err) => {
-   console.error("🔥 WebSocket error:", err.message);
+socket.on('connect_error', (err) => {
+   console.error("🔥 Socket.IO error:", err.message);
 });
 
 /**
  * DISCONNECTED
  */
-ws.on('close', () => {
-   console.warn("🔌 WebSocket disconnected");
+socket.on('disconnect', () => {
+   console.warn("🔌 Socket.IO disconnected");
 });
