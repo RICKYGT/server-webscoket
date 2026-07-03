@@ -151,6 +151,23 @@ app.get('/:office_id/:device_id/:device_ip/:command', async (req, res) => {
    }
 });
 
+// STATUS SERVER (websocket running + office yang connect)
+app.get('/status', (req, res) => {
+   const officeList = Object.entries(offices).map(([office_id, clients]) => ({
+      office_id,
+      connected: clients.length,
+      socket_ids: clients.map(s => s.id)
+   }));
+
+   res.json({
+      status: 'running',
+      uptime_seconds: Math.floor(process.uptime()),
+      started_at: new Date(Date.now() - process.uptime() * 1000).toISOString(),
+      offices_online: Object.keys(offices),
+      offices: officeList
+   });
+});
+
 // STATUS QUEUE
 app.get('/queue/status', (req, res) => {
    const status = {};
