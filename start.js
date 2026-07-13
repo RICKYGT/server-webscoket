@@ -168,6 +168,12 @@ app.get('/status', (req, res) => {
    });
 });
 
+app.get('/', (req, res) => {
+   res.json({
+      data: "The world in your hand",
+   });
+});
+
 // STATUS QUEUE
 app.get('/queue/status', (req, res) => {
    const status = {};
